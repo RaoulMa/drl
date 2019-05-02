@@ -21,13 +21,11 @@ class Actor(nn.Module):
     """ Policy model. """
     def __init__(self, d_obs, d_action):
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(d_obs, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, d_action)
+        self.fc1 = nn.Linear(d_obs, 256)
+        self.fc3 = nn.Linear(256, d_action)
 
         self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
-        self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
-        self.fc3.weight.data.uniform_(-3e-3, 3e-3)
+        self.fc2.weight.data.uniform_(-3e-3, 3e-3)
 
     def forward(self, obs):
         x = F.relu(self.fc1(obs))
@@ -72,7 +70,7 @@ class DDPGAgent():
         # Q-value network (current and target)
         self.critic = Critic(d_obs, d_action).to(device)
         self.critic_target = Critic(d_obs, d_action).to(device)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3, weight_decay=0)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=3e-3, weight_decay=0.0001)
 
     def add_to_buffer(self, state, action, reward, next_state, done):
         """Save experience in replay memory."""
@@ -153,13 +151,13 @@ class ReplayBuffer:
 # Hyperparameters
 n_episodes = 1000
 log_step = 100
-buffer_size = int(1e5)
+buffer_size = int(1e6)
 gamma = 0.99
 tau = 1e-3
-seed = 1
 fill_buffer_at_start = 1000
 batch_size = 128
 max_time_steps = 300
+seed = 1
 
 # Non-Hyperparameters
 episode_number = 0
@@ -167,7 +165,7 @@ step_number = 0
 scores = []
 
 # Environment
-env = gym.make('Pendulum-v0')
+env = gym.make('BipedalWalker-v2')
 d_action = env.action_space.shape[0]
 d_obs = env.observation_space.shape[0]
 

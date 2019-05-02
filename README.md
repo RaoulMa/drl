@@ -1,6 +1,6 @@
-![four_rooms_maze.gif](images/four_rooms_maze.gif)
 ### About
-Implementation of DDPG, PPO, DQN and VPG agents to solve various OpenAI gym environments using Tensorflow and PyTorch.
+Implementation of DDPG, PPO, DQN and VPG agents to solve various OpenAI gym environments 
+using Tensorflow and PyTorch. The focus is on simple and short code.  
 
 This repository serves the purpose of self-teaching. The implementations are not particularly
 clear, efficient, well tested or numerically stable. We advise against using this software for non-didactic
