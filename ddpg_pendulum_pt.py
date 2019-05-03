@@ -6,11 +6,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import gym
+import copy
 from collections import namedtuple, deque
 from utils import get_experiment_name
 import sys
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 def hidden_init(layer):
     fan_in = layer.weight.data.size()[0]
@@ -63,6 +65,7 @@ class DDPGAgent():
         self.gamma = gamma
 
         self.memory = ReplayBuffer(buffer_size, batch_size)
+        self.noise = OUNoise(d_action)
 
         # Policy network (current and target)
         self.actor = Actor(d_obs, d_action).to(device)
@@ -86,7 +89,7 @@ class DDPGAgent():
             action = self.actor(obs).cpu().data.numpy()
         self.actor.train()
         if add_noise:
-            action += 0.1 * (np.random.rand(1) - 0.5)
+            action += self.noise.sample()
         return np.clip(action, -1, 1)
 
     def update(self):
@@ -125,6 +128,29 @@ class DDPGAgent():
         for target_param, local_param in zip(target_model.parameters(), model.parameters()):
             target_param.data.copy_(self.tau * local_param.data + (1.0 - self.tau) * target_param.data)
 
+class OUNoise:
+    """Ornstein-Uhlenbeck process.
+       differential equation: dx_t =  theta (mu - x_t) dt + sigma dW_t
+       mu: drift
+       W_t: Wiener process
+    """
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.1):
+        self.size = size
+        self.mu = mu * np.ones(size)
+        self.theta = theta
+        self.sigma = sigma # volatility
+        self.delta_t = 0.01
+        self.reset()
+
+    def reset(self):
+        self.state = copy.copy(self.mu)
+
+    def sample(self):
+        x = self.state
+        dx = self.theta * (self.mu - x) * self.delta_t + self.sigma * np.sqrt(self.delta_t) * np.array([random.gauss(0,1) for i in range(self.size)])
+        self.state = x + dx
+        return self.state
+
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
     def __init__(self, buffer_size, batch_size):
@@ -152,7 +178,7 @@ class ReplayBuffer:
 
 # Hyperparameters
 n_episodes = 1000
-log_step = 100
+log_step = 2000
 buffer_size = int(1e5)
 gamma = 0.99
 tau = 1e-3
@@ -179,7 +205,7 @@ env.seed(seed)
 agent = DDPGAgent(d_obs, d_action, buffer_size, batch_size, tau, gamma)
 
 # train model
-if True:
+if False:
     # create experiment folder
     experiments_folder = os.path.join(os.getcwd(), 'results')
     experiment_name, experiment_folder = get_experiment_name(experiments_folder)
@@ -188,6 +214,7 @@ if True:
         episode_number += 1
         obs, done = env.reset(), False
         score, episode_length = 0, 0
+        agent.noise.reset()
 
         while not done and episode_length <= max_time_steps:
             step_number += 1
@@ -221,8 +248,8 @@ if True:
 
 # load model
 else:
-    agent.actor.load_state_dict(torch.load('results/1/ckpt_actor.pth'))
-    agent.critic.load_state_dict(torch.load('results/1/ckpt_critic.pth'))
+    agent.actor.load_state_dict(torch.load('results/drl.europe-west1-b.lithe-sunset-237906/results/1/ckpt_actor.pth'))
+    agent.critic.load_state_dict(torch.load('results/drl.europe-west1-b.lithe-sunset-237906/results/1/ckpt_critic.pth'))
 
     obs = env.reset()
     for t in range(300):

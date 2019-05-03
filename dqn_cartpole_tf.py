@@ -119,7 +119,6 @@ for _ in range(n_steps):
         print('ep {} step {} loss {:.2f} return {} eps {:.2f}'.format(episode_number, step_number,
                                                                       loss_, np.mean(returns[-10:]),
                                                                       epsilon))
-
 sess.close()
 env.close()
 
