@@ -50,23 +50,25 @@ class OUNoise:
 class Actor():
     def __init__(self, scope, d_obs, d_action):
         self.scope = scope
+        kernel_initializer = tf.initializers.orthogonal()
         with tf.variable_scope(scope):
             self.obs_ph = tf.placeholder(shape=(None, d_obs), dtype=tf.float32)
-            output = tf.layers.dense(self.obs_ph, units=400, activation=tf.nn.relu)
-            output = tf.layers.dense(output, units=300, activation=tf.nn.relu)
-            self.output = tf.layers.dense(output, units=d_action, activation=tf.nn.tanh)
+            output = tf.layers.dense(self.obs_ph, units=400, activation=tf.nn.relu, kernel_initializer=kernel_initializer)
+            output = tf.layers.dense(output, units=300, activation=tf.nn.relu, kernel_initializer=kernel_initializer)
+            self.output = tf.layers.dense(output, units=d_action, activation=tf.nn.tanh, kernel_initializer=kernel_initializer)
             self.trainable_variables = tf.trainable_variables(scope=scope)
 
 class Critic():
     def __init__(self, scope, d_obs, d_action):
         self.scope = scope
+        kernel_initializer = tf.initializers.orthogonal()
         with tf.variable_scope(scope):
             self.obs_ph = tf.placeholder(shape=(None, d_obs), dtype=tf.float32)
             self.action_ph = tf.placeholder(shape=(None, d_action), dtype=tf.float32)
-            output = tf.layers.dense(self.obs_ph, units=400, activation=tf.nn.relu)
+            output = tf.layers.dense(self.obs_ph, units=400, activation=tf.nn.relu, kernel_initializer=kernel_initializer)
             output = tf.concat([output, self.action_ph], axis=1)
-            output = tf.layers.dense(output, units=300, activation=tf.nn.relu)
-            self.output = tf.layers.dense(output, units=1, activation=None)
+            output = tf.layers.dense(output, units=300, activation=tf.nn.relu, kernel_initializer=kernel_initializer)
+            self.output = tf.layers.dense(output, units=1, activation=None, kernel_initializer=kernel_initializer)
             self.action_grads = tf.gradients(self.output, self.action_ph)
             self.trainable_variables = tf.trainable_variables(scope=scope)
 
@@ -211,7 +213,7 @@ class DDPGAgent():
         return critic_loss, actor_loss
 
 # Hyperparameters
-n_episodes = 1000
+n_episodes = 2000
 log_step = 2000
 buffer_size = int(1e5)
 gamma = 0.99
@@ -236,7 +238,7 @@ tf.set_random_seed(seed)
 env.seed(seed)
 
 # train model
-if True:
+if False:
     # create experiment folder
     experiments_folder = os.path.join(os.getcwd(), 'results')
     experiment_name, experiment_folder = get_experiment_name(experiments_folder)
@@ -280,7 +282,7 @@ if True:
 
 # load model
 else:
-    experiment_folder = 'results/63'
+    experiment_folder = 'results_train/ddpg_pendulum_tf'
     agent = DDPGAgent(d_obs, d_action, buffer_size, batch_size, tau, gamma, experiment_folder)
     agent.load()
 

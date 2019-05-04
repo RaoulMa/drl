@@ -9,17 +9,16 @@ purposes.
 This software is licensed under the MIT License.
 
 ### Installation and Usage
-This code is based on [TensorFlow](https://www.tensorflow.org/) and 
-[PyTorch](https://pytorch.org/). Install Python 3 with basic 
+This code is based on [TensorFlow](https://www.tensorflow.org/). Install Python 3 with basic 
 packages, then run these commands: 
 ```Shell
 git clone -b master --single-branch https://github.com/RaoulMa/drl.git
 python3 -m pip install --user --upgrade pip
 python3 -m pip install --user -r requirements.txt 
 ```
-Scripts ending with 'tf' ('pt') are written in Tensorflow (PyTorch). Run one of the python scripts, e.g.
+Run one of the python scripts, e.g.
 ```Shell
-python3 ddpg_pendulum_pt.py
+python3 ddpg_pendulum_tf.py
 ```
 
 ### References
