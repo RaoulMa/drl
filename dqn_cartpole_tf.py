@@ -1,3 +1,12 @@
+""" Agent trained via deep q-learning
+    Playing Atari with Deep Reinforcement Learning, Mnih et al.
+    arXiv:1312.5602v1  [cs.LG]  19 Dec 2013
+    http://web.stanford.edu/class/psych209/Readings/MnihEtAlHassibis15NatureControlDeepRL.pdf
+
+    y_i = r_i + 𝛾 * max(Q(next_state, action; 𝜃_target))
+    Loss: (y_i - Q(state, action; 𝜃))^2
+    Every C step, 𝜃_target <- 𝜃
+"""
 import tensorflow as tf
 import numpy as np
 import gym

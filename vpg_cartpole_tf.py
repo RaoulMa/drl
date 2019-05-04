@@ -1,3 +1,9 @@
+""" Agent trained via REINFORCE (vanilla policy gradients)
+    Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning
+    Williams, 1992
+
+    Sample trajectories and update the policy accordingly. On-policy algorithm.
+"""
 import numpy as np
 import tensorflow as tf
 import gym

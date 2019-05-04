@@ -1,3 +1,7 @@
+""" Agent trained via DDPG.
+Continuous control with deep reinforcement learning,
+Lillicrap et. al. [arXiv:1509.02971], September 2015
+"""
 import os
 import sys
 import numpy as np
@@ -45,74 +49,111 @@ class OUNoise:
 
 class Actor():
     def __init__(self, scope, d_obs, d_action):
+        self.scope = scope
         with tf.variable_scope(scope):
             self.obs_ph = tf.placeholder(shape=(None, d_obs), dtype=tf.float32)
             output = tf.layers.dense(self.obs_ph, units=400, activation=tf.nn.relu)
             output = tf.layers.dense(output, units=300, activation=tf.nn.relu)
             self.output = tf.layers.dense(output, units=d_action, activation=tf.nn.tanh)
+            self.trainable_variables = tf.trainable_variables(scope=scope)
 
 class Critic():
     def __init__(self, scope, d_obs, d_action):
+        self.scope = scope
         with tf.variable_scope(scope):
             self.obs_ph = tf.placeholder(shape=(None, d_obs), dtype=tf.float32)
             self.action_ph = tf.placeholder(shape=(None, d_action), dtype=tf.float32)
             output = tf.layers.dense(self.obs_ph, units=400, activation=tf.nn.relu)
             output = tf.concat([output, self.action_ph], axis=1)
             output = tf.layers.dense(output, units=300, activation=tf.nn.relu)
-            self.output = tf.layers.dense(output, units=1, activation=tf.nn.tanh)
+            self.output = tf.layers.dense(output, units=1, activation=None)
+            self.action_grads = tf.gradients(self.output, self.action_ph)
+            self.trainable_variables = tf.trainable_variables(scope=scope)
 
 class DDPGAgent():
-    def __init__(self, d_obs, d_action, buffer_size, batch_size, tau, gamma):
+    def __init__(self, d_obs, d_action, buffer_size, batch_size, tau, gamma, experiment_folder):
         self.d_obs = d_obs
         self.d_action = d_action
         self.buffer_size = buffer_size
         self.batch_size = batch_size
         self.tau = tau
         self.gamma = gamma
+        self.global_step = 0
+        self.experiment_folder = experiment_folder
+        self.nn_name = 'ddpg'
+        self.checkpoint_prefix = os.path.join(self.experiment_folder, self.nn_name + '_ckpt')
 
         self.memory = ReplayBuffer(buffer_size, batch_size)
         self.noise = OUNoise(d_action)
 
-        # Policy network (current and target)
+        # Create policy networks (current and target)
         self.actor = Actor('actor', d_obs, d_action)
         self.actor_target = Actor('actor_target', d_obs, d_action)
 
-        # Q-value network (current and target)
+        # Create Q-value networks (current and target)
         self.critic = Critic('critic', d_obs, d_action)
         self.critic_target = Critic('critic_target', d_obs, d_action)
 
         self.rewards_ph = tf.placeholder(shape=(None,), dtype=tf.float32)
         self.done_ph = tf.placeholder(shape=(None,), dtype=tf.float32)
 
-        # Update Q-value network (critic).
-        Q_value = self.critic.output # Q-value for s_t, a_t
-        Q_target = self.critic_target.output # target Q-value for s_(t+1), a_(t+1) predicted from actor_target
-        target = self.rewards_ph + self.gamma * (1 - self.done_ph) * tf.stop_gradient(tf.reduce_max(Q_target, axis=1))
-        self.critic_loss = tf.reduce_mean((Q_value - target) ** 2)
+        # --- Update Q-value network (critic). --- #
+
+        # Q-value for s_t, a_t
+        self.Q_value = self.critic.output
+
+        # target Q-value for s_(t+1), a_(t+1) predicted from actor_target
+        self.Q_target = self.critic_target.output
+
+        self.target = self.rewards_ph + self.gamma * (1 - self.done_ph) * tf.stop_gradient(tf.reduce_max(self.Q_target, axis=1))
+
+        self.critic_loss = tf.losses.mean_squared_error(labels=tf.reshape(self.target,(-1,1)), predictions=self.Q_value)
         self.critic_train = tf.train.AdamOptimizer(1e-3).minimize(self.critic_loss,
-                                                                  var_list = self.get_trainable_variables('critic'))
+                                                                  var_list=self.critic.trainable_variables)
 
-        # Update Policy network (actor)
-        self.actor_loss = - self.critic.output # with s_t and a_t predicted by actor
-        self.actor_train = tf.train.AdamOptimizer(1e-3).minimize(self.actor_loss)
+        # --- Update Policy network (actor) --- #
 
+        # loss with s_t and a_t predicted by actor
+        self.actor_loss = - tf.reduce_mean(self.critic.output)
 
-        self.optimizer = tf.train.AdamOptimizer(learning_rate)
-        self.grads = tf.gradients(self.output, self.network_params, -action_grads)
-        self.grads_scaled = list(map(lambda x: tf.divide(x, batch_size), self.grads))  # tf.gradients sums over the batch dimension here, must therefore divide by batch_size to get mean gradients
-        train_step = self.optimizer.apply_gradients(zip(self.grads_scaled, self.network_params))
+        # gradients of actor
+        self.actor_grads = tf.gradients(ys=self.actor.output, xs=self.actor.trainable_variables,
+                                        grad_ys=self.critic.action_grads)
 
+        # divide gradients by batch_size and multiply by -1 for gradient ascent
+        self.actor_grads = list(map(lambda x: tf.divide(x, - self.batch_size), self.actor_grads))
 
+        self.actor_train = tf.train.AdamOptimizer(1e-4).apply_gradients(zip(self.actor_grads,
+                                                                            self.actor.trainable_variables))
 
-        # Update target networks
-        self.update_critic_target = self.update_target_op('critic', 'critic_target')
-        self.update_actor_target = self.update_target_op('actor', 'actor_target')
+        # --- Update target networks --- #
+
+        self.update_critic_target = tf.group(*[tf.assign(t_var, s_var) for t_var, s_var
+                                               in zip(self.critic_target.trainable_variables,
+                                                      self.critic.trainable_variables)])
+        self.update_actor_target = tf.group(*[tf.assign(t_var, s_var) for t_var, s_var
+                                               in zip(self.actor_target.trainable_variables,
+                                                      self.actor.trainable_variables)])
+        # saver
+        self.saver = tf.train.Saver()
 
         self.init_session()
 
     def init_session(self):
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
+
+    def save(self):
+        self.saver.save(self.sess, self.checkpoint_prefix, global_step=self.global_step)
+        return self.saver
+
+    def load(self):
+        fnames = os.listdir(self.experiment_folder)
+        ckpt_names = [fname.split('.', 1)[0] for fname in fnames if self.nn_name in fname and '.data' in fname]
+        global_steps = [int(name.split('-',-1)[1]) for name in ckpt_names]
+        latest_ckpt_name = ckpt_names[np.argmax(global_steps)]
+        latest_ckpt = os.path.join(self.experiment_folder, latest_ckpt_name)
+        self.saver.restore(self.sess, latest_ckpt)
 
     def add_to_buffer(self, state, action, reward, next_state, done):
         self.memory.add(state, action, reward, next_state, done)
@@ -155,31 +196,29 @@ class DDPGAgent():
                 self.critic.action_ph: actions,
                 self.rewards_ph: rewards,
                 self.done_ph: dones}
-        critic_loss_, _ = self.sess.run([self.critic_loss, self.critic_train], feed)
-
-        print(self.sess.run(self.get_trainable_variables('critic'))[0][0][:10])
-        print(self.sess.run(self.get_trainable_variables('actor'))[0][0][:10])
+        critic_loss, _ = self.sess.run([self.critic_loss, self.critic_train], feed)
 
         # Update Policy network (actor)
-        feed = {self.critic.obs_ph: obs, self.critic.action_ph: pred_actions}
-        actor_loss_, _ = self.sess.run([self.actor_loss, self.actor_train], feed)
+        feed = {self.critic.obs_ph: obs, self.critic.action_ph: pred_actions, self.actor.obs_ph: obs}
+        actor_loss, _ = self.sess.run([self.actor_loss, self.actor_train], feed)
 
-        print(self.sess.run(self.get_trainable_variables('critic'))[0][0][:10])
-        print(self.sess.run(self.get_trainable_variables('actor'))[0][0][:10])
+        # Update target networks
+        self.sess.run(self.update_critic_target)
+        self.sess.run(self.update_actor_target)
 
-        sys.exit()
+        self.global_step+=1
 
         return critic_loss, actor_loss
 
 # Hyperparameters
-n_episodes = 1
-log_step = 1
+n_episodes = 1000
+log_step = 2000
 buffer_size = int(1e5)
 gamma = 0.99
 tau = 1e-3
 seed = 1
-fill_buffer_at_start = 128
-batch_size = 2
+fill_buffer_at_start = 1000
+batch_size = 128
 max_time_steps = 300
 
 # Non-Hyperparameters
@@ -196,13 +235,13 @@ random.seed(seed)
 tf.set_random_seed(seed)
 env.seed(seed)
 
-agent = DDPGAgent(d_obs, d_action, buffer_size, batch_size, tau, gamma)
-
 # train model
 if True:
     # create experiment folder
     experiments_folder = os.path.join(os.getcwd(), 'results')
     experiment_name, experiment_folder = get_experiment_name(experiments_folder)
+
+    agent = DDPGAgent(d_obs, d_action, buffer_size, batch_size, tau, gamma, experiment_folder)
 
     for _ in range(n_episodes):
         episode_number += 1
@@ -228,8 +267,7 @@ if True:
                                                                       loss[0], loss[1],
                                                                       np.mean(scores[-10:]) if len(scores) > 0 else 0.))
                     # save model
-                    #torch.save(agent.actor.state_dict(), os.path.join(experiment_folder, 'ckpt_actor.pth'))
-                    #torch.save(agent.critic.state_dict(), os.path.join(experiment_folder, 'ckpt_critic.pth'))
+                    agent.save()
 
             obs = next_obs
 
@@ -242,8 +280,9 @@ if True:
 
 # load model
 else:
-    #agent.actor.load_state_dict(torch.load('results/drl.europe-west1-b.lithe-sunset-237906/results/1/ckpt_actor.pth'))
-    #agent.critic.load_state_dict(torch.load('results/drl.europe-west1-b.lithe-sunset-237906/results/1/ckpt_critic.pth'))
+    experiment_folder = 'results/63'
+    agent = DDPGAgent(d_obs, d_action, buffer_size, batch_size, tau, gamma, experiment_folder)
+    agent.load()
 
     obs = env.reset()
     for t in range(300):
